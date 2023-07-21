@@ -1,4 +1,4 @@
-# PyTorch examples
+# 🔩 PyTorch examples
 
 This is a collection of PyTorch examples which I'm developing while learning and
 transitioning to PyTorch. The examples demonstrate different model architectures
