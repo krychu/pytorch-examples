@@ -1,9 +1,9 @@
-# PyTorch examples
+# 🔩 PyTorch examples
 
 This is a collection of PyTorch examples which I'm developing while learning and
 transitioning to PyTorch. The examples demonstrate different model architectures
 and tasks. Each example is commented rather heavily to make them useful to
-others fellow learners. Each example is also self-contained by design. There is
+other fellow learners. Each example is also self-contained by design. There is
 no shared code. The datasets are not synthetic. I try to use popular, real-world
 datasets that hopefully make the examples more relevant. Lastly, the models are
 not optimized for performance but focus primarily on demonstration and teaching.
