@@ -22,7 +22,7 @@ import torch.nn.functional as F
 import time
 
 # Vocabulary is a container class. While building vocabulary each words is
-# added and can later be queried for its index when turning text into int64.
+# added and can later be queried for its index when turning words into int64.
 class Vocabulary():
     def __init__(self):
         self._word2idx = {}
