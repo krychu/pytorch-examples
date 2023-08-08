@@ -1,3 +1,6 @@
+# tbl-bc-mlp.py - preferred?
+# tbl-bc-mlp--spacetitanic.py
+# bc-tbl-mlp.py
 # https://www.kaggle.com/competitions/spaceship-titanic/data?select=test.csv
 # Transported is balanced
 # 50/50 1 vs 0
@@ -9,179 +12,425 @@ import torch.nn.functional as F
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# home_planet_info = {
-#     "Earth": {
-#         "DistanceToSun": 1.0, # Distance in astronomical units
-#         "Diameter": 12742, # Diameter in kilometers
-#         "Mass": 5.972, # Mass in 10^24 kilograms
-#         "Type": 1, # 1 == planet, 0 == moon
-#     },
-#     "Mars": {
-#         "DistanceToSun": 1.52,
-#         "Diameter": 6779,
-#         "Mass": 0.64171,
-#         "Type": 1,
-#     },
-#     "Europa": {
-#         "DistanceToSun": 5.2,
-#         "Diameter": 3122,
-#         "Mass": 0.048,
-#         "Type": 0, # moon
-#     }
-# }
+home_planet_info = {
+    "Earth": {
+        "DistanceToSun": 1.0, # Distance in astronomical units
+        "Diameter": 12742, # Diameter in kilometers
+        "Mass": 5.972, # Mass in 10^24 kilograms
+        "Type": 1, # 1 == planet, 0 == moon
+    },
+    "Mars": {
+        "DistanceToSun": 1.52,
+        "Diameter": 6779,
+        "Mass": 0.64171,
+        "Type": 1,
+    },
+    "Europa": {
+        "DistanceToSun": 5.2,
+        "Diameter": 3122,
+        "Mass": 0.048,
+        "Type": 0, # moon
+    }
+}
 
-# def map_home_planet_distance(row):
-#     return home_planet_info[ row["HomePlanet"] ]["DistanceToSun"]
+def map_home_planet_distance(row):
+    if pd.isna(row["HomePlanet"]):
+        return -1
+    return home_planet_info[ row["HomePlanet"] ]["DistanceToSun"]
 
-# def map_home_planet_diameter(row):
-#     return home_planet_info[ row["HomePlanet"] ]["Diameter"]
+def map_home_planet_diameter(row):
+    if pd.isna(row["HomePlanet"]):
+        return -1
+    return home_planet_info[ row["HomePlanet"] ]["Diameter"]
 
-# def map_home_planet_mass(row):
-#     return home_planet_info[ row["HomePlanet"] ]["Mass"]
+def map_home_planet_mass(row):
+    if pd.isna(row["HomePlanet"]):
+        return -1
+    return home_planet_info[ row["HomePlanet"] ]["Mass"]
 
-# def map_home_planet_type(row):
-#     return home_planet_info[ row["HomePlanet"] ]["Type"]
+def map_home_planet_type(row):
+    if pd.isna(row["HomePlanet"]):
+        return -1
+    return home_planet_info[ row["HomePlanet"] ]["Type"]
 
 # For categorical values we can do: one-hot, ordinal, frequency, or target encoding
 def load_dfs():
     dfs = {
         "df_train": pd.read_csv("./datasets/spacetitanic/train.csv"),
-        "df_test": pd.read_csv("./datasets/spacetitanic/test.csv")
+        "df_pred": pd.read_csv("./datasets/spacetitanic/test.csv")
     }
     return dfs
 
-DO AFTER SPLIT TO VAL
-def transform_dfs(dfs):
+# CryoSleep
+#
+# Fill NaNs with False (the most frequent value). Convert to int.
+def process_CryoSleep(dfs):
+    dfs = dfs.copy()
     for key in dfs.keys():
         df = dfs[key]
+        df["CryoSleep"] = df["CryoSleep"].fillna(False).astype(int)
+        dfs[key] = df
+    return dfs
 
-        # CryoSleep (True or False)
-        # ----------------------------------------
-        # Use False (the most frequent value) for NaNs. Then turn into 1 and 0.
-        df["CryoSleep"] = df["CryoSleep"].fillna(False)
-        #df["CryoSleep"] = df["CryoSleep"].astype(int)
+# VIP
+#
+# Fill NaNs with False (the most frequent value). Convert to int.
+def process_VIP(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
+        df["VIP"] = df["VIP"].fillna(False).astype(int)
+        dfs[key] = df
+    return dfs
 
-        # VIP (True or False)
-        # ----------------------------------------
-        # Same as CryoSleep
-        df["VIP"] = df["VIP"].fillna(False)
-        #df["VIP"] = df["VIP"].astype(int)
-
-        # PassangerId (gggg_pp, 0027_01)
-        # ----------------------------------------
-        # Split into PassengerId_Group and PassengerId_Number
+# PassengerId (gggg_pp, 0027_01)
+#
+# Split into PassengerId_Group and PassengerId_Number
+def process_PassengerId(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
         df[["PassengerId_Group", "PassengerId_Number"]] = df["PassengerId"].str.split("_", expand=True)
         df["PassengerId_Group"] = pd.to_numeric(df["PassengerId_Group"])
         df["PassengerId_Number"] = pd.to_numeric(df["PassengerId_Number"])
-        df.drop(columns="PassengerId", inplace=True)
+        df = df.drop(columns="PassengerId")
+        dfs[key] = df
 
+    dfs = process_standardize(dfs, "PassengerId_Group")
+    dfs = process_standardize(dfs, "PassengerId_Number")
+    return dfs
+
+def process_onehot(dfs, columns):
+    has_val = "df_val" in dfs
+    has_test = "df_test" in dfs
+
+    dfs_to_combine = [dfs["df_train"]]
+    has_val and dfs_to_combine.append(dfs["df_val"])
+    has_test and dfs_to_combine.append(dfs["df_test"])
+
+    df_combined = pd.concat(dfs_to_combine)
+
+    columns_before = set(df_combined.columns)
+    df_combined = pd.get_dummies(df_combined, columns=columns, dummy_na=False)
+    new_onehot_columns = list(set(df_combined.columns) - columns_before)
+    df_combined[new_onehot_columns] = df_combined[new_onehot_columns].astype(int)
+
+    train_end = len(dfs["df_train"])
+    ret = {
+        "df_train": df_combined[:train_end]
+    }
+
+    if has_val and has_test:
+        val_end = train_end + len(dfs["df_val"])
+        ret["df_val"] = df_combined[train_end:val_end]
+        ret["df_test"] = df_combined[val_end:]
+    elif has_val and not has_test:
+        ret["df_val"] = df_combined[train_end:]
+    elif not has_val and has_test:
+        ret["df_test"] = df_combined[train_end:]
+
+    return ret
+
+# HomePlanet (e.g., Earth)
+#
+# Convert to one-hot encoding. NaNs have all 0s.
+def process_HomePlanet(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
         # HomePlanet_DistanceToSun (new column)
         # ----------------------------------------
         # df["HomePlanet_DistanceToSun"] = df.apply(map_home_planet_distance, axis=1)
+        df["HomePlanet_Diameter"] = df.apply(map_home_planet_diameter, axis=1)
+        df["HomePlanet_Mass"] = df.apply(map_home_planet_mass, axis=1)
+        df["HomePlanet_Type"] = df.apply(map_home_planet_type, axis=1)
+        # print(df["HomePlanet_DistanceToSun"])
+        # exit()
+        dfs[key] = df
 
-        # HomePlanet_Diameter (new column)
-        # ----------------------------------------
-        # df["HomePlanet_Diameter"] = df.apply(map_home_planet_diameter, axis=1)
+    # dfs = process_standardize(dfs, "HomePlanet_DistanceToSun")
+    dfs = process_standardize(dfs, "HomePlanet_Diameter")
+    dfs = process_standardize(dfs, "HomePlanet_Mass")
 
-        # HomePlanet_Mass (new column)
-        # ----------------------------------------
-        # df["HomePlanet_Mass"] = df.apply(map_home_planet_mass, axis=1)
+    # HomePlanet_Diameter (new column)
+    # ----------------------------------------
+    # df["HomePlanet_Diameter"] = df.apply(map_home_planet_diameter, axis=1)
 
-        # HomePlanet_Type (new column), 1 == planet, 0 == moon
-        # ----------------------------------------
-        # df["HomePlanet_Type"] = df.apply(map_home_planet_type, axis=1)
+    # HomePlanet_Mass (new column)
+    # ----------------------------------------
+    # df["HomePlanet_Mass"] = df.apply(map_home_planet_mass, axis=1)
 
-        # HomePlanet (e.g, Earth)
-        # ----------------------------------------
-        # Turn into one-hot encoding. Use all 0s for NaNs.
-        #   `dummy_na == True` -- create a dedicated one hot column for NaN values
-        df["HomePlanet"].fillna("Unknown", inplace=True)
-        df = pd.get_dummies(df, columns=["HomePlanet"], dummy_na=False) # HomePlanet is dropped
-        #columns = ["HomePlanet_Earth", "HomePlanet_Mars", "HomePlanet_Europa", "HomePlanet_Unknown"]
-        #df[columns] = df[columns].astype(int)
-        # homeplanet_dummies = pd.get_dummies(df["HomePlanet"], dummy_na=False)
-        # df = pd.concat([df, homeplanet_dummies], axis=1)
+    # HomePlanet_Type (new column), 1 == planet, 0 == moon
+    # ----------------------------------------
+    # df["HomePlanet_Type"] = df.apply(map_home_planet_type, axis=1)
+    return process_onehot(dfs, columns=["HomePlanet"])
 
-        # Cabin (deck/num/side, G/3/S)
-        # ----------------------------------------
-        # Split into Cabin_Deck, Cabin_Num, and Cabin_Side. 199 NaNs.
-        #   `side` == P (Port) or S (Starboard)
+
+# Cabin (deck/num/side, G/3/S)
+#
+# Split into Cabin_Deck, Cabin_Num, and Cabin_Side. 199 NaNs.
+# Side is P (Port) or S (Starboard)
+#
+# Convert Cabin_Deck and Cabin_Side to onehot encodings. Fill NaNs with 0s.
+# Convert Cabin_Num to numeric. Fill NaNs with -1.
+def process_Cabin(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
         df[["Cabin_Deck", "Cabin_Num", "Cabin_Side"]] = df["Cabin"].str.split("/", expand=True)
-        df.drop(columns="Cabin", inplace=True)
+        df = df.drop(columns="Cabin")
 
         # Cabin_Num
-        # ----------------------------------------
-        # Convert to numeric, NaNs become -1
-        #   `errors == "raise"` -- invalid parsing raises an exception
-        #   `errors == "coerce"` -- invalid parsing is set as NaN
+        #
+        # errors == "raise" -- invalid parsing raises an exception
+        # errors == "coerce" -- invalid parsing is set as NaN
         df["Cabin_Num"] = pd.to_numeric(df["Cabin_Num"], errors="coerce")
-        df["Cabin_Num"].fillna(-1, inplace=True)
-
-        # Fill NaN values in Cabin_Level with the median
-        # median_level_train = df["Cabin_Level"].median()
-        # df["Cabin_Level"].fillna(median_level_train, inplace=True)
-
-        # Cabin_Deck (e.g., G)
-        # ----------------------------------------
-        # Turn into one-hot encoding. Use all 0s for NaNs.
-        df = pd.get_dummies(df, columns=["Cabin_Deck"], dummy_na=False)
-
-        # Cabin_Side (P or S)
-        # ----------------------------------------
-        # Turn into one-hot encoding. Use all 0s for NaNs.
-        df = pd.get_dummies(df, columns=["Cabin_Side"], dummy_na=False)
-
-        # Destination (e.g., TRAPPIST-1e)
-        # ----------------------------------------
-        # Turn into one-hot encoding, Use all 0s for NaNs.
-        df = pd.get_dummies(df, columns=["Destination"], dummy_na=False)
-        # df["Destination_55 Cancri e"] = df["Destination_55 Cancri e"].astype(int)
-        # df["Destination_PSO J318.5-22"] = df["Destination_PSO J318.5-22"].astype(int)
-        # df["Destination_TRAPPIST-1e"] = df["Destination_TRAPPIST-1e"].astype(int)
-
-        # RoomService (123.2), FoodCourt, ShoppingMall, Spa, VRDeck
-        # ----------------------------------------
-        # Fill NaNs with 0s (median).
-        df["RoomService"].fillna(0, inplace=True)
-        df["FoodCourt"].fillna(0, inplace=True)
-        df["ShoppingMall"].fillna(0, inplace=True)
-        df["Spa"].fillna(0, inplace=True)
-        df["VRDeck"].fillna(0, inplace=True)
-
-        # Age
-        # ----------------------------------------
-        # Fill NaNs with median.
-        df["Age"].fillna(df["Age"].median(), inplace=True)
-
-        # Name
-        # ----------------------------------------
-        # For now we drop it.
-        df.drop(columns="Name", inplace=True)
-
-        # Change all bool columns into ints
-        # ----------------------------------------
-        bool_cols = [col for col in df.columns if df[col].dtype == bool]
-        df[bool_cols] = df[bool_cols].astype(int)
-
-        if df.isna().any().any():
-            raise Exception("{:s} still has na values".format(key))
+        df["Cabin_Num"] = df["Cabin_Num"].fillna(-1)
 
         dfs[key] = df
 
-    # Standardize selected columns
-    # ----------------------------------------
-    columns_to_standardize = ["RoomService", "FoodCourt", "ShoppingMall", "Spa", "VRDeck", "Age", "PassengerId_Group", "PassengerId_Number", "Cabin_Num"]
+    dfs = process_standardize(dfs, "Cabin_Num")
+    dfs = process_onehot(dfs, columns=["Cabin_Deck", "Cabin_Side"])
+    return dfs
 
-    # Standardize the columns in both training and testing dataframes
-    for column in columns_to_standardize:
-        mean_train = dfs["df_train"][column].mean()
-        std_train = dfs["df_train"][column].std()
+# Destination
+#
+# Convert to onehot encoding. Fill NaNs with 0s.
+def process_Destination(dfs):
+    dfs = process_onehot(dfs, columns=["Destination"])
+    return dfs
 
-        # Apply standardization on training data
-        dfs["df_train"][column] = (dfs["df_train"][column] - mean_train) / std_train
+def process_fillna(dfs, column, value):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
+        df[column] = df[column].fillna(value)
+        dfs[key] = df
+    return dfs
 
-        # Use the mean and std from the training data to standardize the testing data (this is the standard practice to avoid data leakage)
-        dfs["df_test"][column] = (dfs["df_test"][column] - mean_train) / std_train
+def process_standardize(dfs, column):
+    mean_train = dfs["df_train"][column].mean()
+    std_train = dfs["df_train"][column].std()
+
+    #a = dfs["df_train"][column].min()
+    #b = dfs["df_train"][column].max()
+
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
+        df[column] = (df[column] - mean_train) / std_train
+        #df[column] = (df[column] - a) / (b-a)
+        dfs[key] = df
+    return dfs
+
+# RoomService (float)
+#
+# Fill NaNs with 0s (median). Standardize values.
+def process_RoomService(dfs):
+    dfs = process_fillna(dfs, "RoomService", 0)
+    dfs = process_standardize(dfs, "RoomService")
+    return dfs
+
+# FoodCourt (float)
+#
+# Fill NaNs with 0s (median).
+def process_FoodCourt(dfs):
+    dfs = process_fillna(dfs, "FoodCourt", 0)
+    dfs = process_standardize(dfs, "FoodCourt")
+    return dfs
+
+# ShoppingMall (float)
+#
+# Fill NaNs with 0s (median).
+def process_ShoppingMall(dfs):
+    dfs = process_fillna(dfs, "ShoppingMall", 0)
+    dfs = process_standardize(dfs, "ShoppingMall")
+    return dfs
+
+# Spa (float)
+#
+# Fill NaNs with 0s (median).
+def process_Spa(dfs):
+    dfs = process_fillna(dfs, "Spa", 0)
+    dfs = process_standardize(dfs, "Spa")
+    return dfs
+
+# VRDeck (float)
+#
+# Fill NaNs with 0s (median).
+def process_VRDeck(dfs):
+    dfs = process_fillna(dfs, "VRDeck", 0)
+    dfs = process_standardize(dfs, "VRDeck")
+    return dfs
+
+# Age
+#
+# Fill NaNs with median.
+def process_Age(dfs):
+    median = dfs["df_train"]["Age"].median()
+    dfs = process_fillna(dfs, "Age", median)
+    dfs = process_standardize(dfs, "Age")
+    return dfs
+
+# Name
+#
+# Drop name.
+def process_Name(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
+        df = df.drop(columns="Name")
+        dfs[key] = df
+    return dfs
+
+def process_Transported(dfs):
+    dfs = dfs.copy()
+    for key in dfs.keys():
+        df = dfs[key]
+        df["Transported"] = df["Transported"].astype(int)
+        dfs[key] = df
+    return dfs
+
+def sanity_describe(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        print(f"{key}. Describe.\n")
+        print(df.describe(include="all").transpose())
+        print()
+
+def sanity_na(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        # na_cnt = df.isna().sum().sum()
+        # na_pct = (na_cnt / len(df)) * 100.0
+        # print(f"{key}. na cnt: {na_cnt} ({na_pct:.2f}%)")
+
+        na_cnt = df.isna().sum()
+        na_pct = (na_cnt / len(df)) * 100.0
+        df_na = pd.DataFrame({
+            "NA cnt": na_cnt,
+            "Percentage (%)": na_pct
+        })
+        print(f"{key}. NA values.\n")
+        print(df_na)
+        print()
+
+def sanity_unique_cnts(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        print(f"{key}. Unique value cnt. row cnt: {len(df)}\n")
+        print(df.nunique())
+        print()
+
+def sanity_value_cnts(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        print(f"{key}. Value cnts.\n")
+        for column in df.columns:
+            value_cnts = df[column].value_counts(dropna=False)
+            if len(value_cnts) < 15:
+                print(" " * 5 + value_cnts.to_string().replace("\n", "\n     "))
+                print()
+            else:
+                print(f"     {column} has too many values ({len(value_cnts)}). skipping.\n")
+    print()
+    #value_counts_C = df_example["C"].value_counts(dropna=False)
+
+def sanity_corr(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        print(f"{key}. Correlations.")
+        print(df.select_dtypes(include=["number"]).corr())
+        print()
+
+def sanity_duplicates(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        print(f"{key}. Duplicate cnt: {len(df[df.duplicated()])}")
+    print()
+    # use drop_duplicates to drop duplicates :)
+
+# We use the Interquartile Range (IQR)
+def sanity_outliers(dfs):
+    for key in dfs.keys():
+        df = dfs[key].select_dtypes(include=["number"])
+        print(f"{key}. Outliers.\n")
+        for column in df.columns:
+            Q1 = df[column].quantile(0.25)
+            Q3 = df[column].quantile(0.75)
+            IQR = Q3 - Q1
+
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+
+            df_outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)]
+            print(f"  {column}. outlier cnt: {len(df_outliers)}")
+        print()
+
+# Skewness: Measures the degree of asymmetry of a distribution. A value of zero
+# indicates a symmetrical distribution, a negative skewness indicates a
+# distribution that is skewed left, and a positive skewness indicates a
+# distribution that is skewed right.
+#
+# Kurtosis: Measures the "tailedness" of a distribution. A high kurtosis
+# indicates a distribution with tails heavier than a normal distribution, while
+# a low kurtosis indicates a distribution with tails lighter than a normal
+# distribution.
+#
+# Analyzing skewness and kurtosis can help in decisions related to data
+# transformations. For example, features that are heavily skewed might benefit
+# from transformations like logarithms or square roots to make their
+# distribution more normal, which can be beneficial for certain algorithms that
+# assume normally distributed input features.
+def sanity_distribution(dfs):
+    for key in dfs.keys():
+        df = dfs[key]
+        skewness = df.skew(numeric_only=True)
+        kurtosis = df.kurt(numeric_only=True)
+
+        df_distribution = pd.DataFrame({
+            "Skewness": skewness,
+            "Kurtosis": kurtosis
+        })
+
+        print(f"{key}. Distribution.\n")
+        print(df_distribution)
+
+def sanity_target_distribution(dfs, column):
+    for key in dfs.keys():
+        df = dfs[key]
+        if column in df:
+            df_distribution = df[column].value_counts(normalize=True) * 100
+            print(f"{key}. Target distribution: {column}.\n")
+            print(df_distribution)
+            print()
+
+def sanity(dfs):
+    sanity_describe(dfs)
+    sanity_na(dfs)
+    sanity_unique_cnts(dfs)
+    sanity_value_cnts(dfs)
+    sanity_corr(dfs)
+    sanity_duplicates(dfs)
+    sanity_outliers(dfs)
+    sanity_distribution(dfs)
+    sanity_target_distribution(dfs, "Transported")
+
+def process_dfs(dfs):
+    dfs = process_CryoSleep(dfs)
+    dfs = process_VIP(dfs)
+    dfs = process_PassengerId(dfs)
+    dfs = process_HomePlanet(dfs)
+    dfs = process_Cabin(dfs)
+    dfs = process_Destination(dfs)
+    dfs = process_RoomService(dfs)
+    dfs = process_FoodCourt(dfs)
+    dfs = process_ShoppingMall(dfs)
+    dfs = process_Spa(dfs)
+    dfs = process_VRDeck(dfs)
+    dfs = process_Age(dfs)
+    dfs = process_Name(dfs)
+    dfs = process_Transported(dfs)
 
     return dfs
 
@@ -234,10 +483,10 @@ class Model(nn.Module):
 
         return x
 
-def create_datasets(dfs):
+def create_datasets(dfs, target):
     # TODO: use to_numpy() and cehck dtype
-    x_train = torch.tensor(dfs["df_train"].drop("Transported", axis=1).values, dtype=torch.float32)
-    y_train = torch.tensor(dfs["df_train"]["Transported"].values, dtype=torch.float32).unsqueeze(1)  # add an extra dimension for the target
+    x_train = torch.tensor(dfs["df_train"].drop(target, axis=1).values, dtype=torch.float32)
+    y_train = torch.tensor(dfs["df_train"][target].values, dtype=torch.float32).unsqueeze(1)  # add an extra dimension for the target
 
     x_test = torch.tensor(dfs["df_test"].values, dtype=torch.float32)  # For the test set, there's no 'Transported' column
 
@@ -248,6 +497,42 @@ def create_datasets(dfs):
         "ds_train": ds_train,
         "ds_test": ds_test
     }
+
+# if any _frac is 0 the corresponding df won't be included. train_frac cannot
+# be 0.
+def split_df(df, train_frac, val_frac, test_frac):
+    assert(train_frac != 0)
+    assert(abs(train_frac+val_frac+test_frac - 1) < 0.00001)
+
+    has_val = val_frac != 0
+    has_test = val_frac != 0
+
+    df = df.sample(frac=1).reset_index(drop=True)
+    train_end = int(train_frac * len(df))
+
+    ret = {
+        "df_train": df.iloc[:train_end]
+    }
+
+    if has_val and has_test:
+        val_end = train_end + int(val_frac * len(df))
+        ret["df_val"] = df.iloc[train_end:val_end]
+        ret["df_test"] = df.iloc[val_end:]
+    elif has_val and not has_test:
+        ret["df_val"] = df.iloc[train_end:]
+    elif not has_val and has_test:
+        ret["df_test"] = df.iloc[train_end:]
+
+    return ret
+
+def split_dfs(dfs, train_frac, val_frac, test_frac):
+    splitted_dfs = split_df(dfs["df_train"], train_frac, val_frac, test_frac)
+    splitted_dfs["df_pred"] = dfs["df_pred"]
+    train_cnt = len(splitted_dfs["df_train"])
+    val_cnt = len(splitted_dfs["df_val"])
+    test_cnt = len(splitted_dfs["df_test"])
+    print(f"split. train: {train_cnt} rows, val: {val_cnt} rows, test: {test_cnt} rows")
+    return splitted_dfs
 
 def split_train_dataset(dss, split):
     train_size = int(split * len(dss["ds_train"]))
@@ -346,8 +631,10 @@ def train(cfg):
 
 def create_config():
     dfs = load_dfs()
-    dfs = transform_dfs(dfs)
-    dss = create_datasets(dfs)
+    dfs = split_dfs(dfs, 0.7, 0.2, 0.1)
+    #sanity(dfs)
+    dfs = process_dfs(dfs)
+    dss = create_datasets(dfs, "Transported")
 
     cfg = {
         "train_val_split": 0.8,
