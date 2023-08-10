@@ -11,6 +11,15 @@ import torch.optim as optim
 import torch.nn.functional as F
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import numpy as np
+
+# move to sanity
+def print_len(dfs, label):
+    print(f"{label}. ", end="")
+    for idx, key in enumerate(sorted(dfs.keys())):
+        prefix = "" if idx == 0 else ", "
+        print(f"{prefix}{key}: {len(dfs[key])} rows", end="")
+    print()
 
 home_planet_info = {
     "Earth": {
@@ -101,12 +110,27 @@ def process_PassengerId(dfs):
     return dfs
 
 def process_onehot(dfs, columns):
-    has_val = "df_val" in dfs
-    has_test = "df_test" in dfs
+    assert("df_train" in dfs)
+    ranges = {}
+    # We will concatenate all dfs so that onehot encoding includes all possible
+    # levels and is consistent across dfs. Such concatenated df will have a
+    # superset of all columns. To "restore" individual dfs we need to remember
+    # which columns they had. One example where df might have fewer columns
+    # than others is for the prediction data which lacks the target column.
+    initial_columns = {}
 
-    dfs_to_combine = [dfs["df_train"]]
-    has_val and dfs_to_combine.append(dfs["df_val"])
-    has_test and dfs_to_combine.append(dfs["df_test"])
+    keys = list(dfs.keys())
+    # Move "df_train" to the front. Not needed.
+    keys.insert(0, keys.pop(keys.index("df_train")))
+    dfs_to_combine = []
+    a, b = 0, 0
+    for key in keys:
+        df = dfs[key]
+        initial_columns[key] = df.columns.to_list()
+        dfs_to_combine.append(df)
+        b = a + len(df)
+        ranges[key] = [a, b]
+        a = b
 
     df_combined = pd.concat(dfs_to_combine)
 
@@ -115,21 +139,51 @@ def process_onehot(dfs, columns):
     new_onehot_columns = list(set(df_combined.columns) - columns_before)
     df_combined[new_onehot_columns] = df_combined[new_onehot_columns].astype(int)
 
-    train_end = len(dfs["df_train"])
-    ret = {
-        "df_train": df_combined[:train_end]
-    }
-
-    if has_val and has_test:
-        val_end = train_end + len(dfs["df_val"])
-        ret["df_val"] = df_combined[train_end:val_end]
-        ret["df_test"] = df_combined[val_end:]
-    elif has_val and not has_test:
-        ret["df_val"] = df_combined[train_end:]
-    elif not has_val and has_test:
-        ret["df_test"] = df_combined[train_end:]
-
+    ret = {}
+    for key in keys:
+        a, b = ranges[key]
+        # print(a)
+        # print(b)
+        #print(key)
+        #print(initial_columns[key])
+        df_columns = list((set(initial_columns[key]) - set(columns)) | set(new_onehot_columns))
+        #print(df_columns)
+        #ret[key] = df_combined.loc[a:b, initial_columns[key]]
+        ret[key] = df_combined.iloc[a:b][df_columns]
     return ret
+
+# def process_onehot(dfs, columns):
+#     has_val = "df_val" in dfs
+#     has_test = "df_test" in dfs
+#     has_pred = "df_pred" in dfs
+
+#     dfs_to_combine = [dfs["df_train"]]
+#     has_val and dfs_to_combine.append(dfs["df_val"])
+#     has_test and dfs_to_combine.append(dfs["df_test"])
+#     has_pred and dfs_to_combine.append(dfs["df_pred"])
+
+#     df_combined = pd.concat(dfs_to_combine)
+
+#     columns_before = set(df_combined.columns)
+#     df_combined = pd.get_dummies(df_combined, columns=columns, dummy_na=False)
+#     new_onehot_columns = list(set(df_combined.columns) - columns_before)
+#     df_combined[new_onehot_columns] = df_combined[new_onehot_columns].astype(int)
+
+#     train_end = len(dfs["df_train"])
+#     ret = {
+#         "df_train": df_combined[:train_end]
+#     }
+
+#     if has_val and has_test:
+#         val_end = train_end + len(dfs["df_val"])
+#         ret["df_val"] = df_combined[train_end:val_end]
+#         ret["df_test"] = df_combined[val_end:]
+#     elif has_val and not has_test:
+#         ret["df_val"] = df_combined[train_end:]
+#     elif not has_val and has_test:
+#         ret["df_test"] = df_combined[train_end:]
+
+#     return ret
 
 # HomePlanet (e.g., Earth)
 #
@@ -287,134 +341,14 @@ def process_Transported(dfs):
     dfs = dfs.copy()
     for key in dfs.keys():
         df = dfs[key]
+        # print(key)
+        # print("Transported" in df.columns)
+        # print(df["Transported"])
+        if "Transported" not in df.columns:
+            continue
         df["Transported"] = df["Transported"].astype(int)
         dfs[key] = df
     return dfs
-
-def sanity_describe(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        print(f"{key}. Describe.\n")
-        print(df.describe(include="all").transpose())
-        print()
-
-def sanity_na(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        # na_cnt = df.isna().sum().sum()
-        # na_pct = (na_cnt / len(df)) * 100.0
-        # print(f"{key}. na cnt: {na_cnt} ({na_pct:.2f}%)")
-
-        na_cnt = df.isna().sum()
-        na_pct = (na_cnt / len(df)) * 100.0
-        df_na = pd.DataFrame({
-            "NA cnt": na_cnt,
-            "Percentage (%)": na_pct
-        })
-        print(f"{key}. NA values.\n")
-        print(df_na)
-        print()
-
-def sanity_unique_cnts(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        print(f"{key}. Unique value cnt. row cnt: {len(df)}\n")
-        print(df.nunique())
-        print()
-
-def sanity_value_cnts(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        print(f"{key}. Value cnts.\n")
-        for column in df.columns:
-            value_cnts = df[column].value_counts(dropna=False)
-            if len(value_cnts) < 15:
-                print(" " * 5 + value_cnts.to_string().replace("\n", "\n     "))
-                print()
-            else:
-                print(f"     {column} has too many values ({len(value_cnts)}). skipping.\n")
-    print()
-    #value_counts_C = df_example["C"].value_counts(dropna=False)
-
-def sanity_corr(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        print(f"{key}. Correlations.")
-        print(df.select_dtypes(include=["number"]).corr())
-        print()
-
-def sanity_duplicates(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        print(f"{key}. Duplicate cnt: {len(df[df.duplicated()])}")
-    print()
-    # use drop_duplicates to drop duplicates :)
-
-# We use the Interquartile Range (IQR)
-def sanity_outliers(dfs):
-    for key in dfs.keys():
-        df = dfs[key].select_dtypes(include=["number"])
-        print(f"{key}. Outliers.\n")
-        for column in df.columns:
-            Q1 = df[column].quantile(0.25)
-            Q3 = df[column].quantile(0.75)
-            IQR = Q3 - Q1
-
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-
-            df_outliers = df[(df[column] < lower_bound) | (df[column] > upper_bound)]
-            print(f"  {column}. outlier cnt: {len(df_outliers)}")
-        print()
-
-# Skewness: Measures the degree of asymmetry of a distribution. A value of zero
-# indicates a symmetrical distribution, a negative skewness indicates a
-# distribution that is skewed left, and a positive skewness indicates a
-# distribution that is skewed right.
-#
-# Kurtosis: Measures the "tailedness" of a distribution. A high kurtosis
-# indicates a distribution with tails heavier than a normal distribution, while
-# a low kurtosis indicates a distribution with tails lighter than a normal
-# distribution.
-#
-# Analyzing skewness and kurtosis can help in decisions related to data
-# transformations. For example, features that are heavily skewed might benefit
-# from transformations like logarithms or square roots to make their
-# distribution more normal, which can be beneficial for certain algorithms that
-# assume normally distributed input features.
-def sanity_distribution(dfs):
-    for key in dfs.keys():
-        df = dfs[key]
-        skewness = df.skew(numeric_only=True)
-        kurtosis = df.kurt(numeric_only=True)
-
-        df_distribution = pd.DataFrame({
-            "Skewness": skewness,
-            "Kurtosis": kurtosis
-        })
-
-        print(f"{key}. Distribution.\n")
-        print(df_distribution)
-
-def sanity_target_distribution(dfs, column):
-    for key in dfs.keys():
-        df = dfs[key]
-        if column in df:
-            df_distribution = df[column].value_counts(normalize=True) * 100
-            print(f"{key}. Target distribution: {column}.\n")
-            print(df_distribution)
-            print()
-
-def sanity(dfs):
-    sanity_describe(dfs)
-    sanity_na(dfs)
-    sanity_unique_cnts(dfs)
-    sanity_value_cnts(dfs)
-    sanity_corr(dfs)
-    sanity_duplicates(dfs)
-    sanity_outliers(dfs)
-    sanity_distribution(dfs)
-    sanity_target_distribution(dfs, "Transported")
 
 def process_dfs(dfs):
     dfs = process_CryoSleep(dfs)
@@ -528,10 +462,6 @@ def split_df(df, train_frac, val_frac, test_frac):
 def split_dfs(dfs, train_frac, val_frac, test_frac):
     splitted_dfs = split_df(dfs["df_train"], train_frac, val_frac, test_frac)
     splitted_dfs["df_pred"] = dfs["df_pred"]
-    train_cnt = len(splitted_dfs["df_train"])
-    val_cnt = len(splitted_dfs["df_val"])
-    test_cnt = len(splitted_dfs["df_test"])
-    print(f"split. train: {train_cnt} rows, val: {val_cnt} rows, test: {test_cnt} rows")
     return splitted_dfs
 
 def split_train_dataset(dss, split):
@@ -556,6 +486,49 @@ def create_dataloaders(dss, batch_size):
         "dl_val": dl_val,
         "dl_test": dl_test
     }
+
+def eval(model, criterion, dl):
+    model.eval()
+    running_loss = 0.0
+    predictions, true = [], []
+    with torch.no_grad():
+        for batch_idx, (x, y) in enumerate(dl):
+            y_pred = model(x)
+            loss = criterion(y_pred, y)
+            running_loss += loss.item() + x.size(0)
+
+            # Store predictions and true labels for metrics calculation
+            y_pred_sigmoid = torch.sigmoid(y_pred).round()
+            predictions.extend(y_pred_sigmoid.numpy())
+            true.extend(y.numpy())
+
+    # accuracies.append(accuracy)
+    # precisions.append(precision)
+    # recalls.append(recall)
+    # f1_scores.append(f1)
+
+    return {
+        "avg_loss": running_loss / len(dl.dataset),
+        "accuracy": accuracy_score(true, predictions),
+        "precision": precision_score(true, predictions),
+        "recall": recall_score(true, predictions),
+        "f1": f1_score(true, predictions)
+    }
+
+# dl should not be shuffled
+def pred(model, dl, df, column):
+    model.eval()
+    predictions = []
+    with torch.no_grad():
+        for x in dl:
+            y_pred = model(x)
+            y_pred_sigmoid = torch.sigmoid(y_pred).round()
+            predictions.extend(y_pred_sigmoid.numpy())
+
+    df = df.copy()
+    df[column] = np.array(predictions).astype(bool)
+
+    return df
 
 def train(cfg):
     epoch_cnt = cfg["epoch_cnt"]
@@ -593,47 +566,25 @@ def train(cfg):
 
         #scheduler.step()
 
-        model.eval()
-        running_val_loss = 0.0
-        val_predictions, val_true = [], []
-        with torch.no_grad():
-            for batch_idx, (x, y) in enumerate(dl_val):
-                y_pred = model(x)
-                loss = criterion(y_pred, y)
-                running_val_loss += loss.item() + x.size(0)
-
-                # Store predictions and true labels for metrics calculation
-                predicted = torch.sigmoid(y_pred).round()
-                val_predictions.extend(predicted.numpy())
-                val_true.extend(y.numpy())
-
-        # Report validation loss and metrics
-        avg_val_loss = running_val_loss / len(dl_val.dataset)
-        accuracy = accuracy_score(val_true, val_predictions)
-        precision = precision_score(val_true, val_predictions)
-        recall = recall_score(val_true, val_predictions)
-        f1 = f1_score(val_true, val_predictions)
-
-        # accuracies.append(accuracy)
-        # precisions.append(precision)
-        # recalls.append(recall)
-        # f1_scores.append(f1)
-
+        r = eval(model, criterion, dl_val)
         print("epoch: {:3d}/{:d}, val loss: {:5.3f}, accuracy: {:5.3f}, precision: {:5.3f}, recall: {:5.3f}, f1: {:5.3f}".format(
             epoch_idx+1,
             epoch_cnt,
-            avg_val_loss,
-            accuracy,
-            precision,
-            recall,
-            f1
+            r["avg_loss"],
+            r["accuracy"],
+            r["precision"],
+            r["recall"],
+            r["f1"]
         ))
 
 def create_config():
     dfs = load_dfs()
+    print_len(dfs, "initial")
     dfs = split_dfs(dfs, 0.7, 0.2, 0.1)
+    print_len(dfs, "splitted")
     #sanity(dfs)
     dfs = process_dfs(dfs)
+    print_len(dfs, "post processed")
     dss = create_datasets(dfs, "Transported")
 
     cfg = {
@@ -645,6 +596,7 @@ def create_config():
         # "log_interval": 10000
     }
 
+    WE SPLIT TWICE? :DDDD IT'S ALREADY SPLIT
     dss = split_train_dataset(dss, cfg["train_val_split"])
     dls = create_dataloaders(dss, cfg["batch_size"])
 
@@ -664,3 +616,5 @@ def create_config():
 if __name__ == "__main__":
     cfg = create_config()
     train(cfg)
+
+    df = cfg[""]
