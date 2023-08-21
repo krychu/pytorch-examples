@@ -1,5 +1,13 @@
 import pandas as pd
 
+# move to sanity
+def print_len(dfs, label):
+    print(f"{label}. ", end="")
+    for idx, key in enumerate(sorted(dfs.keys())):
+        prefix = "" if idx == 0 else ", "
+        print(f"{prefix}{key}: {len(dfs[key])} rows", end="")
+    print()
+
 def sanity_describe(dfs):
     for key in dfs.keys():
         df = dfs[key]

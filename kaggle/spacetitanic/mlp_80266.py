@@ -74,8 +74,8 @@ def map_home_planet_type(row):
 # For categorical values we can do: one-hot, ordinal, frequency, or target encoding
 def load_dfs():
     dfs = {
-        "df_train": pd.read_csv("./datasets/spacetitanic/train.csv"),
-        "df_pred": pd.read_csv("./datasets/spacetitanic/test.csv")
+        "df_train": pd.read_csv("./data/train.csv"),
+        "df_pred": pd.read_csv("./data/test.csv")
     }
     dfs["df_submission"] = dfs["df_pred"].loc[:, ["PassengerId"]]
     return dfs

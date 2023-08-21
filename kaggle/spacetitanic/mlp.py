@@ -74,8 +74,8 @@ def map_home_planet_type(row):
 # For categorical values we can do: one-hot, ordinal, frequency, or target encoding
 def load_dfs():
     dfs = {
-        "df_train": pd.read_csv("./datasets/spacetitanic/train.csv"),
-        "df_pred": pd.read_csv("./datasets/spacetitanic/test.csv")
+        "df_train": pd.read_csv("./data/train.csv"),
+        "df_pred": pd.read_csv("./data/test.csv")
     }
     dfs["df_submission"] = dfs["df_pred"].loc[:, ["PassengerId"]]
     return dfs
@@ -152,48 +152,9 @@ def process_onehot(dfs, columns):
     ret = {}
     for key in keys:
         a, b = ranges[key]
-        # print(a)
-        # print(b)
-        #print(key)
-        #print(initial_columns[key])
         df_columns = list((set(initial_columns[key]) - set(columns)) | set(new_onehot_columns))
-        #print(df_columns)
-        #ret[key] = df_combined.loc[a:b, initial_columns[key]]
         ret[key] = df_combined.iloc[a:b][df_columns]
     return ret
-
-# def process_onehot(dfs, columns):
-#     has_val = "df_val" in dfs
-#     has_test = "df_test" in dfs
-#     has_pred = "df_pred" in dfs
-
-#     dfs_to_combine = [dfs["df_train"]]
-#     has_val and dfs_to_combine.append(dfs["df_val"])
-#     has_test and dfs_to_combine.append(dfs["df_test"])
-#     has_pred and dfs_to_combine.append(dfs["df_pred"])
-
-#     df_combined = pd.concat(dfs_to_combine)
-
-#     columns_before = set(df_combined.columns)
-#     df_combined = pd.get_dummies(df_combined, columns=columns, dummy_na=False)
-#     new_onehot_columns = list(set(df_combined.columns) - columns_before)
-#     df_combined[new_onehot_columns] = df_combined[new_onehot_columns].astype(int)
-
-#     train_end = len(dfs["df_train"])
-#     ret = {
-#         "df_train": df_combined[:train_end]
-#     }
-
-#     if has_val and has_test:
-#         val_end = train_end + len(dfs["df_val"])
-#         ret["df_val"] = df_combined[train_end:val_end]
-#         ret["df_test"] = df_combined[val_end:]
-#     elif has_val and not has_test:
-#         ret["df_val"] = df_combined[train_end:]
-#     elif not has_val and has_test:
-#         ret["df_test"] = df_combined[train_end:]
-
-#     return ret
 
 # HomePlanet (e.g., Earth)
 #
@@ -205,16 +166,16 @@ def process_HomePlanet(dfs):
         # HomePlanet_DistanceToSun (new column)
         # ----------------------------------------
         # df["HomePlanet_DistanceToSun"] = df.apply(map_home_planet_distance, axis=1)
-        df["HomePlanet_Diameter"] = df.apply(map_home_planet_diameter, axis=1)
-        df["HomePlanet_Mass"] = df.apply(map_home_planet_mass, axis=1)
-        df["HomePlanet_Type"] = df.apply(map_home_planet_type, axis=1)
+        # df["HomePlanet_Diameter"] = df.apply(map_home_planet_diameter, axis=1)
+        # df["HomePlanet_Mass"] = df.apply(map_home_planet_mass, axis=1)
+        # df["HomePlanet_Type"] = df.apply(map_home_planet_type, axis=1)
         # print(df["HomePlanet_DistanceToSun"])
         # exit()
         dfs[key] = df
 
     # dfs = process_standardize(dfs, "HomePlanet_DistanceToSun")
-    dfs = process_standardize(dfs, "HomePlanet_Diameter")
-    dfs = process_standardize(dfs, "HomePlanet_Mass")
+    # dfs = process_standardize(dfs, "HomePlanet_Diameter")
+    # dfs = process_standardize(dfs, "HomePlanet_Mass")
 
     # HomePlanet_Diameter (new column)
     # ----------------------------------------
@@ -544,6 +505,13 @@ def train(cfg):
     dl_test = cfg["dls"].get("dl_test", None)
     # log_interval = cfg["log_interval"]
 
+    cfg["best_models"] = {
+        "avg_val_loss": {
+            "model": None,
+            "value": None
+        }
+    }
+
     for epoch_idx in range(epoch_cnt):
         model.train()
         running_loss = 0.0
@@ -570,14 +538,20 @@ def train(cfg):
             scheduler.step()
 
         if dl_val:
+            r = eval(model, criterion, dl_val)
+            val_entry = cfg["best_models"]["avg_val_loss"]
+            if val_entry["model"] is None or r["avg_loss"] < val_entry["value"]:
+                val_entry["model"] = model CLONE OR WHAT? WE KEEP GOING WITH IT
+                HERE ALSO DO K FOLD or N FOLD WTF
             print_eval(eval(model, criterion, dl_val), "val data", epoch_idx, epoch_cnt)
+
 
     if dl_test:
         print_eval(eval(model, criterion, dl_test), "test data")
 
 def create_config():
     # val and test can be 0!
-    train_val_test_split = [1.0, 0.0, 0.0]
+    train_val_test_split = [0.8, 0.1, 0.1]
     lr = 0.001
     batch_size = 32
     epoch_cnt = 20
