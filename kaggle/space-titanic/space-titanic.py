@@ -119,6 +119,15 @@ def process_PassengerId(dfs):
     dfs = process_standardize(dfs, "PassengerId_Number")
     return dfs
 
+# Turn selected columns into one-hot encodings. Each unique value in every
+# column will be turned into a new column.
+#
+# dfs is a dict with Dataframes. They will be merged together to determine
+# unique values. And one-hot encoding will be carried for each of the
+# Dataframes.
+#
+# - Are the selected columns deleted afterwards?
+# - How do we treat NA? A separate column, or all zeros?
 def process_onehot(dfs, columns):
     assert("df_train" in dfs)
     ranges = {}
